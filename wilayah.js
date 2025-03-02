@@ -2,14 +2,21 @@ let WEATHER_API_KEY = "";
 let provinceTranslation = {};
 let conditionTranslation = {};
 
+async function loadWeatherAPIKey() {
+  const res = await fetch('/api/key');
+  if (!res.ok) throw new Error('Gagal memuat API Key');
+  const data = await res.json();
+  WEATHER_API_KEY = data.key;
+}
+
 async function loadProvinceTranslation() {
-  const response = await fetch('translate/provinsi.json');
+  const response = await fetch('provinsi.json');
   if (!response.ok) throw new Error('Gagal memuat translasi provinsi');
   provinceTranslation = await response.json();
 }
 
 async function loadConditionTranslation() {
-  const response = await fetch('translate/cuaca.json');
+  const response = await fetch('cuaca.json');
   if (!response.ok) throw new Error('Gagal memuat translasi kondisi cuaca');
   conditionTranslation = await response.json();
 }
@@ -30,7 +37,7 @@ async function getWeather(query) {
   if (!response.ok) {
     if (response.status === 400) {
       const errorData = await response.json();
-      if (errorData.error && errorData.error.message === "No matching location found.") {
+      if (errorData.error?.message === "No matching location found.") {
         throw new Error('Lokasi tidak ditemukan di WeatherAPI.');
       }
     }
@@ -62,8 +69,11 @@ class Wilayah {
       this.resetSelect(this.selects.kabupaten, 'Pilih Kabupaten/Kota');
       this.resetWeather();
 
-      this.provinsiNama = (this.selects.provinsi.options[this.selects.provinsi.selectedIndex]?.text || '').trim();
-      this.provinsiEn = provinceTranslation[this.provinsiNama];
+      this.provinsiNama = (this.selects.provinsi.selectedOptions[0]?.text || '').trim();
+      const provinsiEntry = Object.entries(provinceTranslation).find(
+        ([key]) => key === this.provinsiNama
+      );
+      this.provinsiEn = provinsiEntry ? provinsiEntry[1] : null;
 
       if (!this.provinsiEn) {
         this.cuacaElement.innerHTML = `<div class="text-danger">❌ Translasi provinsi "${this.provinsiNama}" tidak ditemukan.</div>`;
@@ -83,7 +93,7 @@ class Wilayah {
       this.resetWeather();
 
       const kabupatenNama = cleanLocationName(
-        this.selects.kabupaten.options[this.selects.kabupaten.selectedIndex]?.text || ''
+        this.selects.kabupaten.selectedOptions[0]?.text || ''
       );
 
       if (!kabupatenNama || !this.provinsiEn) {
@@ -126,7 +136,7 @@ class Wilayah {
           infoLokasiTambahan = `
             <div class="text-danger mb-2">
               ❌ Data tidak ditemukan untuk <strong>${kabupatenNama}</strong>.<br>
-              🔍 Menampilkan kota terdekat: <strong>${dataCuaca.location.name}</strong> (${provinsiId})
+              🔍 Menampilkan kota terdekat: <strong>${dataCuaca.location.name}</strong> (${region})
             </div>
             <hr>
           `;
@@ -147,11 +157,7 @@ class Wilayah {
           <p class="mb-0"><strong>Kualitas Udara (PM2.5):</strong> ${dataCuaca.current.air_quality.pm2_5.toFixed(1)} µg/m³</p>
         `;
       } catch (error) {
-        if (error.message === 'Lokasi tidak ditemukan di WeatherAPI.') {
-          this.cuacaElement.innerHTML = `<div class="text-danger">❌ Lokasi tidak ditemukan di WeatherAPI. Silakan pilih lokasi lain.</div>`;
-        } else {
-          this.cuacaElement.innerHTML = `<div class="text-danger">❌ Gagal mengambil data cuaca. Terjadi kesalahan.</div>`;
-        }
+        this.cuacaElement.innerHTML = `<div class="text-danger">❌ Gagal mengambil data cuaca. ${error.message}</div>`;
       }
     });
   }
@@ -182,6 +188,7 @@ class Wilayah {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  await loadWeatherAPIKey();
   await loadProvinceTranslation();
   await loadConditionTranslation();
   const wilayah = new Wilayah();

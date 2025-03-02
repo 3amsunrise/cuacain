@@ -1,4 +1,4 @@
-const WEATHER_API_KEY = "2f4306eb95b94f1dbf954809250203";
+let WEATHER_API_KEY = "";
 let provinceTranslation = {};
 let conditionTranslation = {};
 

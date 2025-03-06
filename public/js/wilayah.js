@@ -25,49 +25,61 @@ function getPrimaryCityName(name) {
 }
 
 async function getApiKey() {
-  const response = await fetch('/api/key');
-  const data = await response.json();
-  return data.key;
+  try {
+    const response = await fetch('/api/key', { mode: 'cors' });
+    if (!response.ok) throw new Error(`API key fetch failed with status ${response.status}`);
+    const data = await response.json();
+    if (!data.key) throw new Error('No API key returned');
+    return data.key;
+  } catch (error) {
+    console.error('API Key Fetch Error:', error);
+    throw error;
+  }
 }
 
 async function getCoordinates(query, fullLocationName) {
   if (cache.has(query)) return cache.get(query);
   const OWM_API_KEY = await getApiKey();
   const nominatimUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=10&countrycodes=ID`;
-  const response = await fetch(nominatimUrl, {
-    headers: { 
-      'User-Agent': 'CuacaIn/1.0 (your.email@example.com)',
-      'Accept-Language': 'id'
+  try {
+    const response = await fetch(nominatimUrl, {
+      headers: { 
+        'User-Agent': 'CuacaIn/1.0 (your.email@example.com)',
+        'Accept-Language': 'id'
+      }
+    });
+    if (!response.ok) {
+      if (response.status === 429) throw new Error('Batas permintaan tercapai. Tunggu sebentar lalu coba lagi.');
+      throw new Error('Gagal memuat lokasi.');
     }
-  });
-  if (!response.ok) {
-    if (response.status === 429) throw new Error('Batas permintaan tercapai. Tunggu sebentar lalu coba lagi.');
-    throw new Error('Gagal memuat lokasi.');
+    const results = await response.json();
+    if (results.length === 0) throw new Error('Lokasi tidak ditemukan.');
+
+    const fullLocationLower = fullLocationName.toLowerCase();
+
+    results.sort((a, b) => (b.importance || 0) - (a.importance || 0));
+
+    const exactMatch = results.find(item => 
+      item.display_name.toLowerCase().includes(fullLocationLower) ||
+      item.name.toLowerCase() === query.split(',')[0].toLowerCase().trim()
+    );
+
+    const selected = exactMatch || results[0];
+    const nearby = results
+      .filter(item => item.display_name !== selected.display_name)
+      .slice(0, 3)
+      .map(item => ({ name: item.display_name.split(',')[0].trim(), lat: item.lat, lon: item.lon }));
+
+    const result = {
+      selected: { name: selected.display_name, lat: selected.lat, lon: selected.lon },
+      nearby
+    };
+    cache.set(query, result);
+    return result;
+  } catch (error) {
+    console.error('Coordinates Fetch Error:', error);
+    throw error;
   }
-  const results = await response.json();
-  if (results.length === 0) throw new Error('Lokasi tidak ditemukan.');
-
-  const fullLocationLower = fullLocationName.toLowerCase();
-
-  results.sort((a, b) => (b.importance || 0) - (a.importance || 0));
-
-  const exactMatch = results.find(item => 
-    item.display_name.toLowerCase().includes(fullLocationLower) ||
-    item.name.toLowerCase() === query.split(',')[0].toLowerCase().trim()
-  );
-
-  const selected = exactMatch || results[0];
-  const nearby = results
-    .filter(item => item.display_name !== selected.display_name)
-    .slice(0, 3)
-    .map(item => ({ name: item.display_name.split(',')[0].trim(), lat: item.lat, lon: item.lon }));
-
-  const result = {
-    selected: { name: selected.display_name, lat: selected.lat, lon: selected.lon },
-    nearby
-  };
-  cache.set(query, result);
-  return result;
 }
 
 const debouncedGetCoordinates = debounce(getCoordinates, 1000);
@@ -77,22 +89,25 @@ async function getWeatherByCoordinates(lat, lon) {
   const currentUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${OWM_API_KEY}&units=metric&lang=id`;
   const forecastUrl = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${OWM_API_KEY}&units=metric&lang=id`;
   
-  const [currentResponse, forecastResponse] = await Promise.all([
-    fetch(currentUrl),
-    fetch(forecastUrl)
-  ]);
-
-  if (!currentResponse.ok || !forecastResponse.ok) {
-    if (currentResponse.status === 429 || forecastResponse.status === 429) {
-      throw new Error('Batas API tercapai. Coba lagi nanti.');
+  try {
+    const [currentResponse, forecastResponse] = await Promise.all([
+      fetch(currentUrl),
+      fetch(forecastUrl)
+    ]);
+    if (!currentResponse.ok || !forecastResponse.ok) {
+      if (currentResponse.status === 429 || forecastResponse.status === 429) {
+        throw new Error('Batas API tercapai. Coba lagi nanti.');
+      }
+      throw new Error('Gagal memuat cuaca.');
     }
-    throw new Error('Gagal memuat cuaca.');
+    return {
+      current: await currentResponse.json(),
+      forecast: await forecastResponse.json()
+    };
+  } catch (error) {
+    console.error('Weather Fetch Error:', error);
+    throw error;
   }
-
-  return {
-    current: await currentResponse.json(),
-    forecast: await forecastResponse.json()
-  };
 }
 
 class Wilayah {
@@ -110,9 +125,17 @@ class Wilayah {
   }
 
   async init() {
-    await this.loadData('provinces.json', this.selects.provinsi, 'Pilih Provinsi');
-    this.setupListeners();
-    this.setupDarkMode();
+    try {
+      if (!this.selects.provinsi || !this.selects.kabupaten || !this.cuacaElement) {
+        throw new Error('DOM elements not found');
+      }
+      await this.loadData('provinces.json', this.selects.provinsi, 'Pilih Provinsi');
+      this.setupListeners();
+      this.setupDarkMode();
+    } catch (error) {
+      console.error('Initialization Error:', error);
+      this.cuacaElement.innerHTML = `<div class="alert alert-danger">❌ ${error.message}</div>`;
+    }
   }
 
   setupListeners() {
@@ -233,9 +256,10 @@ class Wilayah {
           </div>
         `;
 
-        this.updateMap(geoData.lat, geoData.lon);
+        await this.updateMap(geoData.lat, geoData.lon); // Ensure map updates asynchronously
       } catch (error) {
         const message = !navigator.onLine ? 'Tidak ada koneksi internet.' : error.message;
+        console.error('Load Failed:', error);
         this.cuacaElement.innerHTML = `<div class="alert alert-danger">❌ ${message}</div>`;
       }
     });
@@ -243,44 +267,62 @@ class Wilayah {
 
   setupDarkMode() {
     const toggle = document.getElementById('dark-mode-toggle');
-    toggle.addEventListener('click', () => {
-      document.body.classList.toggle('dark-mode');
-      toggle.innerHTML = document.body.classList.contains('dark-mode') 
-        ? '<i class="bi bi-sun-fill"></i>' 
-        : '<i class="bi bi-moon-fill"></i>';
-    });
+    if (toggle) {
+      toggle.addEventListener('click', () => {
+        document.body.classList.toggle('dark-mode');
+        toggle.innerHTML = document.body.classList.contains('dark-mode') 
+          ? '<i class="bi bi-sun-fill"></i>' 
+          : '<i class="bi bi-moon-fill"></i>';
+      });
+    } else {
+      console.error('Dark mode toggle button not found');
+    }
   }
 
-  async updateMap(lat, lon) { // Marked as async
-    if (!this.map) {
-      this.map = L.map('map').setView([lat, lon], 10);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors'
-      }).addTo(this.map);
-      const OWM_API_KEY = await getApiKey();
-      this.weatherLayer = L.tileLayer(`https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=${OWM_API_KEY}`, {
-        opacity: 0.5
-      }).addTo(this.map);
-      this.marker = L.marker([lat, lon]).addTo(this.map);
-    } else {
-      this.map.setView([lat, lon], 10);
-      this.marker.setLatLng([lat, lon]);
+  async updateMap(lat, lon) {
+    try {
+      if (!this.map) {
+        this.map = L.map('map').setView([lat, lon], 10);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© OpenStreetMap contributors'
+        }).addTo(this.map);
+        const OWM_API_KEY = await getApiKey();
+        this.weatherLayer = L.tileLayer(`https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=${OWM_API_KEY}`, {
+          opacity: 0.5
+        }).addTo(this.map);
+        this.marker = L.marker([lat, lon]).addTo(this.map);
+      } else {
+        this.map.setView([lat, lon], 10);
+        this.marker.setLatLng([lat, lon]);
+      }
+    } catch (error) {
+      console.error('Map Update Error:', error);
+      throw error;
     }
   }
 
   async fetchData(endpoint) {
-    const response = await fetch(`${this.apiBase}${endpoint}`);
-    if (!response.ok) throw new Error('Gagal memuat data wilayah.');
-    return response.json();
+    try {
+      const response = await fetch(`${this.apiBase}${endpoint}`);
+      if (!response.ok) throw new Error('Gagal memuat data wilayah.');
+      return response.json();
+    } catch (error) {
+      console.error('Fetch Data Error:', error);
+      throw error;
+    }
   }
 
   async loadData(endpoint, selectElement, placeholder) {
-    const data = await this.fetchData(endpoint);
-    selectElement.innerHTML = `<option value="" disabled selected>${placeholder}</option>`;
-    data.forEach(item => {
-      selectElement.innerHTML += `<option value="${item.id}">${item.name}</option>`;
-    });
-    selectElement.disabled = false;
+    try {
+      const data = await this.fetchData(endpoint);
+      selectElement.innerHTML = `<option value="" disabled selected>${placeholder}</option>`;
+      data.forEach(item => {
+        selectElement.innerHTML += `<option value="${item.id}">${item.name}</option>`;
+      });
+      selectElement.disabled = false;
+    } catch (error) {
+      console.error('Load Data Error:', error);
+    }
   }
 
   resetSelect(selectElement, placeholder) {

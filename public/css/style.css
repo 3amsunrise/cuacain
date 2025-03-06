@@ -1,4 +1,3 @@
-/* Reset and Base Styles */
 * {
   margin: 0;
   padding: 0;
@@ -343,7 +342,7 @@ body.dark-mode .nearby-card {
   font-size: 1.25rem;
   font-weight: 600;
   color: #2d3748;
-  margin: 0 0 0.75rem; /* Increased to 0.75rem for a comfortable gap */
+  margin: 0 0 0.75rem;
 }
 
 body.dark-mode .nearby-card h6 {
@@ -571,7 +570,7 @@ body.dark-mode .footer {
 
   .nearby-card h6 {
     font-size: 1.1rem;
-    margin: 0 0 0.5rem; /* Adjusted to 0.5rem for a balanced gap */
+    margin: 0 0 0.5rem;
   }
 
   .nearby-container {
@@ -713,7 +712,7 @@ body.dark-mode .footer {
 
   .nearby-card h6 {
     font-size: 1rem;
-    margin: 0 0 0.5rem; /* Adjusted to 0.5rem for a balanced gap */
+    margin: 0 0 0.5rem;
   }
 
   .nearby-container {

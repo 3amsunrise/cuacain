@@ -16,10 +16,12 @@ function toTitleCase(str) {
   ).join(' ');
 }
 
+// Membersihkan nama lokasi dari kata seperti "Kabupaten" atau "Kota"
 function cleanLocationName(name) {
-  return name.replace(/Kabupaten\s+|Kota\s+|Kab.\s+|Adm.\s+/gi, '').trim();
+  return name.replace(/Kabupaten\s+|Kota\s+/gi, '').trim();
 }
 
+// Mendapatkan nama kota utama dari string lokasi
 function getPrimaryCityName(name) {
   return name.split(' ')[0];
 }
@@ -27,7 +29,7 @@ function getPrimaryCityName(name) {
 async function getApiKey() {
   try {
     const response = await fetch('/api/key', { mode: 'cors' });
-    if (!response.ok) throw new Error(`API key fetch failed with status ${response.status}`);
+    if (!response.ok) throw new Error("API key fetch failed with status ${response.status}");
     const data = await response.json();
     if (!data.key) throw new Error('No API key returned');
     return data.key;
@@ -37,14 +39,14 @@ async function getApiKey() {
   }
 }
 
+// Mendapatkan koordinat lokasi dari Nominatim OpenStreetMap API
 async function getCoordinates(query, fullLocationName) {
   if (cache.has(query)) return cache.get(query);
-  const OWM_API_KEY = await getApiKey();
   const nominatimUrl = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=10&countrycodes=ID`;
   try {
     const response = await fetch(nominatimUrl, {
       headers: { 
-        'User-Agent': 'CuacaIn/1.0 (your.email@example.com)',
+        'User-Agent': 'CuacaIn/1.0 (https://cuacain.vercel.app/)',
         'Accept-Language': 'id'
       }
     });
@@ -65,25 +67,53 @@ async function getCoordinates(query, fullLocationName) {
     );
 
     const selected = exactMatch || results[0];
-    const nearby = results
-      .filter(item => item.display_name !== selected.display_name)
-      .slice(0, 3)
-      .map(item => ({ name: item.display_name.split(',')[0].trim(), lat: item.lat, lon: item.lon }));
 
+    const isCityOrAdmin = selected.type === 'city' || selected.type === 'administrative' || selected.type === 'town';
+    if (!isCityOrAdmin) {
+      const cityMatch = results.find(item => item.type === 'city' || item.type === 'administrative');
+      if (cityMatch) selected = cityMatch;
+    }
     const result = {
-      selected: { name: selected.display_name, lat: selected.lat, lon: selected.lon },
-      nearby
+      selected: { 
+        name: selected.display_name, 
+        lat: selected.lat, 
+        lon: selected.lon 
+      },
+      nearby: []
     };
     cache.set(query, result);
     return result;
   } catch (error) {
-    console.error('Coordinates Fetch Error:', error);
+    console.error('Nominatim Fetch Error:', error);
     throw error;
+  }
+}
+
+// Validasi koordinat dengan OpenWeatherMap Reverse Geocoding
+async function validateCoordinatesWithOWM(lat, lon) {
+  const OWM_API_KEY = await getApiKey();
+  const reverseUrl = `https://api.openweathermap.org/geo/1.0/reverse?lat=${lat}&lon=${lon}&limit=1&appid=${OWM_API_KEY}`;
+  try {
+    const response = await fetch(reverseUrl);
+    if (!response.ok) {
+      console.warn('OWM Reverse Geocoding failed, using Nominatim coordinates as fallback.');
+      return { lat, lon };
+    }
+    const data = await response.json();
+    if (data.length === 0) {
+      console.warn('No matching location found in OWM, using Nominatim coordinates as fallback.');
+      return { lat, lon };
+    }
+    return { lat: data[0].lat, lon: data[0].lon };
+  } catch (error) {
+    console.error('OWM Reverse Geocoding Error:', error);
+    return { lat, lon };
   }
 }
 
 const debouncedGetCoordinates = debounce(getCoordinates, 1000);
 
+// Mendapatkan data cuaca dari OpenWeatherMap API
 async function getWeatherByCoordinates(lat, lon) {
   const OWM_API_KEY = await getApiKey();
   const currentUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${OWM_API_KEY}&units=metric&lang=id`;
@@ -112,26 +142,29 @@ async function getWeatherByCoordinates(lat, lon) {
 
 class Wilayah {
   constructor() {
-    this.apiBase = 'https://www.emsifa.com/api-wilayah-indonesia/api/';
+    this.apiBase = 'https://alamat.thecloudalert.com/api/';
     this.selects = {
       provinsi: document.getElementById('provinsi'),
       kabupaten: document.getElementById('kabupaten'),
     };
     this.cuacaElement = document.getElementById('hasil-cuaca');
     this.provinsiNama = '';
-    this.map = null;
-    this.marker = null;
-    this.weatherLayer = null;
+    this.map = null; 
+    this.marker = null; 
+    this.weatherLayer = null; 
+    this.localTimeElement = null; 
+    this.timeInterval = null; 
   }
 
+  // Inisialisasi aplikasi
   async init() {
     try {
       if (!this.selects.provinsi || !this.selects.kabupaten || !this.cuacaElement) {
         throw new Error('DOM elements not found');
       }
-      await this.loadData('provinces.json', this.selects.provinsi, 'Pilih Provinsi');
-      this.setupListeners();
-      this.setupDarkMode();
+      await this.loadData('provinsi/get/', this.selects.provinsi, 'Pilih Provinsi');
+      this.setupListeners(); 
+      this.setupDarkMode(); 
     } catch (error) {
       console.error('Initialization Error:', error);
       this.cuacaElement.innerHTML = `<div class="alert alert-danger">❌ ${error.message}</div>`;
@@ -145,7 +178,7 @@ class Wilayah {
       this.provinsiNama = this.selects.provinsi.selectedOptions[0]?.text.trim() || '';
       if (this.selects.provinsi.value) {
         await this.loadData(
-          `regencies/${this.selects.provinsi.value}.json`,
+          `kabkota/get/?d_provinsi_id=${this.selects.provinsi.value}`,
           this.selects.kabupaten,
           'Pilih Kabupaten/Kota'
         );
@@ -161,7 +194,7 @@ class Wilayah {
       }
       const cleanedKabupatenNama = cleanLocationName(kabupatenNama);
       const primaryCityName = getPrimaryCityName(cleanedKabupatenNama);
-      const fullLocationName = `${kabupatenNama}, ${this.provinsiNama}`;
+      const fullLocationName = `${cleanedKabupatenNama}, ${this.provinsiNama}`;
       const lokasiQuery = `${primaryCityName}, ${this.provinsiNama}, Indonesia`;
 
       this.cuacaElement.innerHTML = `<div class="loading">Mengambil data cuaca...</div>`;
@@ -169,19 +202,24 @@ class Wilayah {
       try {
         const geoResult = await debouncedGetCoordinates(lokasiQuery, fullLocationName);
         const geoData = geoResult.selected;
-        const nearbyCities = geoResult.nearby;
         const dataCuaca = await getWeatherByCoordinates(geoData.lat, geoData.lon);
 
         const kondisi = toTitleCase(dataCuaca.current.weather[0].description);
         const provinsiOutput = toTitleCase(this.provinsiNama);
         const iconUrl = `https://openweathermap.org/img/wn/${dataCuaca.current.weather[0].icon}@2x.png`;
 
+        const utcTimestamp = dataCuaca.current.dt; 
+        const timezoneOffsetSeconds = dataCuaca.current.timezone; 
+        const timezoneName = this.getTimezoneName(timezoneOffsetSeconds); 
+        const localTime = luxon.DateTime.fromSeconds(utcTimestamp, { zone: timezoneName })
+          .toFormat('HH:mm:ss');
+
         const dailyForecasts = [];
         const seenDates = new Set();
         for (const item of dataCuaca.forecast.list) {
           const date = new Date(item.dt * 1000);
           const dateKey = date.toLocaleDateString('id-ID', { day: 'numeric', month: 'numeric', year: 'numeric' });
-          if (!seenDates.has(dateKey) && dailyForecasts.length < 7) {
+          if (!seenDates.has(dateKey) && dailyForecasts.length < 6) {
             dailyForecasts.push(item);
             seenDates.add(dateKey);
           }
@@ -203,25 +241,10 @@ class Wilayah {
           `;
         }).join('');
 
-        let nearbyInfo = '';
-        if (nearbyCities.length > 0) {
-          const nearbyList = nearbyCities.map(city => `
-            <div class="nearby-item">
-              <span class="nearby-name">${city.name}</span>
-            </div>
-          `).join('');
-          nearbyInfo = `
-            <div class="nearby-card">
-              <h6>Kota Terdekat</h6>
-              <div class="nearby-container">${nearbyList}</div>
-            </div>
-          `;
-        }
-
         this.cuacaElement.innerHTML = `
           <div class="weather-card">
             <div class="weather-header">
-              <h5>${dataCuaca.current.name}</h5>
+              <h5>${toTitleCase(kabupatenNama)}</h5> <!-- Menggunakan nama dari dropdown -->
               <img src="${iconUrl}" alt="Weather Icon" class="weather-icon">
             </div>
             <div class="weather-details">
@@ -249,14 +272,22 @@ class Wilayah {
                 <span class="detail-label">Angin</span>
                 <span class="detail-value">${dataCuaca.current.wind.speed} m/s</span>
               </div>
+              <div class="weather-detail-item" id="local-time-container">
+                <span class="detail-label">Waktu Lokal</span>
+                <span class="detail-value" id="local-time">${localTime}</span>
+              </div>
             </div>
-            ${nearbyInfo}
-            <h6>Prakiraan 7 Hari</h6>
+            <h6>Prakiraan 6 Hari</h6>
             <div class="forecast-container">${forecastItems}</div>
           </div>
         `;
 
-        await this.updateMap(geoData.lat, geoData.lon); // Ensure map updates asynchronously
+        this.localTimeElement = document.getElementById('local-time');
+        if (this.localTimeElement) {
+          this.startTimeUpdate(utcTimestamp, timezoneName);
+        }
+
+        await this.updateMap(geoData.lat, geoData.lon);
       } catch (error) {
         const message = !navigator.onLine ? 'Tidak ada koneksi internet.' : error.message;
         console.error('Load Failed:', error);
@@ -265,6 +296,30 @@ class Wilayah {
     });
   }
 
+  getTimezoneName(timezoneOffsetSeconds) {
+    if (timezoneOffsetSeconds === 25200) return 'Asia/Jakarta'; 
+    if (timezoneOffsetSeconds === 28800) return 'Asia/Makassar';
+    if (timezoneOffsetSeconds === 32400) return 'Asia/Jayapura';
+    return 'UTC';
+  }
+
+  // Memperbarui waktu lokal 
+  updateLocalTime(utcTimestamp, timezoneName) {
+    if (!this.localTimeElement) return;
+    const currentUtcTime = luxon.DateTime.utc().toSeconds();
+    const timeDiff = currentUtcTime - utcTimestamp;
+    const localTimestamp = utcTimestamp + timeDiff;
+    const localTime = luxon.DateTime.fromSeconds(localTimestamp, { zone: timezoneName })
+      .toFormat('HH:mm:ss');
+    this.localTimeElement.textContent = localTime;
+  }
+
+  startTimeUpdate(utcTimestamp, timezoneName) {
+    if (this.timeInterval) clearInterval(this.timeInterval);
+    this.timeInterval = setInterval(() => this.updateLocalTime(utcTimestamp, timezoneName), 1000);
+  }
+
+  // Mengatur mode
   setupDarkMode() {
     const toggle = document.getElementById('dark-mode-toggle');
     if (toggle) {
@@ -279,6 +334,7 @@ class Wilayah {
     }
   }
 
+  // Memperbarui peta berdasarkan koordinat
   async updateMap(lat, lon) {
     try {
       if (!this.map) {
@@ -301,23 +357,27 @@ class Wilayah {
     }
   }
 
+  // Mengambil data dari API wilayah Indonesia
   async fetchData(endpoint) {
     try {
       const response = await fetch(`${this.apiBase}${endpoint}`);
       if (!response.ok) throw new Error('Gagal memuat data wilayah.');
-      return response.json();
+      const data = await response.json();
+      if (data.status !== 200 || !data.result) throw new Error('Data wilayah tidak ditemukan dalam respons.');
+      return data.result;
     } catch (error) {
       console.error('Fetch Data Error:', error);
       throw error;
     }
   }
 
+  // Memuat data ke dalam elemen select
   async loadData(endpoint, selectElement, placeholder) {
     try {
       const data = await this.fetchData(endpoint);
       selectElement.innerHTML = `<option value="" disabled selected>${placeholder}</option>`;
       data.forEach(item => {
-        selectElement.innerHTML += `<option value="${item.id}">${item.name}</option>`;
+        selectElement.innerHTML += `<option value="${item.id}">${item.text}</option>`;
       });
       selectElement.disabled = false;
     } catch (error) {
@@ -330,12 +390,18 @@ class Wilayah {
     selectElement.disabled = true;
   }
 
+  // Mereset tampilan cuaca
   resetWeather() {
     this.cuacaElement.innerHTML = '<div class="alert alert-secondary">Silakan pilih Kabupaten/Kota untuk melihat cuaca.</div>';
+    if (this.timeInterval) {
+      clearInterval(this.timeInterval);
+      this.timeInterval = null;
+    }
+    this.localTimeElement = null;
   }
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
   const wilayah = new Wilayah();
-  await wilayah.init();
+  await wilayah.init(); 
 });

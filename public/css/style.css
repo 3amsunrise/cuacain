@@ -19,7 +19,6 @@ body.dark-mode {
   color: #e2e8f0;
 }
 
-/* Header */
 .header {
   background: linear-gradient(135deg, #2a4365, #4c6b8a);
   padding: 2rem 0;
@@ -60,7 +59,6 @@ body.dark-mode .header {
   transform: translateY(-50%) scale(1.1);
 }
 
-/* Container */
 .container {
   max-width: 1100px;
   margin: 0 auto;
@@ -72,7 +70,6 @@ body.dark-mode .header {
   flex: 1;
 }
 
-/* Location Selector */
 .location-selector {
   background: #fff;
   border-radius: 16px;
@@ -131,7 +128,6 @@ body.dark-mode .form-select:disabled {
   background-color: #1e2a44;
 }
 
-/* Weather Result */
 .weather-result {
   transition: opacity 0.3s;
 }
@@ -225,7 +221,6 @@ body.dark-mode .detail-value {
   height: 80px;
 }
 
-/* Forecast */
 .forecast-container {
   display: flex;
   overflow-x: auto;
@@ -263,7 +258,7 @@ body.dark-mode .forecast-container::-webkit-scrollbar-thumb {
 }
 
 .forecast-item {
-  background: #f3f4f6;
+  background: #dbdbdb;
   border-radius: 12px;
   padding: 1.5rem;
   text-align: center;
@@ -323,7 +318,6 @@ body.dark-mode .forecast-temp {
   margin: 0.5rem 0;
 }
 
-/* Nearby Cities Card */
 .nearby-card {
   background: #f3f4f6;
   border-radius: 12px;
@@ -389,7 +383,6 @@ body.dark-mode .nearby-name {
   color: #e2e8f0;
 }
 
-/* Alerts */
 .alert {
   border-radius: 10px;
   padding: 1rem;
@@ -422,7 +415,6 @@ body.dark-mode .alert-secondary {
   border-color: #4b5563;
 }
 
-/* Loading */
 .loading {
   display: flex;
   align-items: center;
@@ -443,7 +435,6 @@ body.dark-mode .alert-secondary {
   margin-right: 1rem;
 }
 
-/* Map */
 .map-container {
   border-radius: 16px;
   overflow: hidden;
@@ -461,7 +452,6 @@ body.dark-mode .map-container {
   height: 450px;
 }
 
-/* Footer */
 .footer {
   padding: 1.5rem 0;
   background: #f3f4f6;
@@ -477,7 +467,6 @@ body.dark-mode .footer {
   color: #d1d5db;
 }
 
-/* Animations */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
@@ -487,7 +476,6 @@ body.dark-mode .footer {
   to { transform: rotate(360deg); }
 }
 
-/* Responsive Design */
 @media (max-width: 768px) {
   .header {
     padding: 1rem 0;
